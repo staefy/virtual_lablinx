@@ -3,7 +3,7 @@ Virtual StackLink device simulator.
 
 This script implements two main services:
 
-1. A TCP server that listens on port 7000 and accepts plain‑text StackLink
+1. A TCP server that listens on port 7000 and accepts plain-text StackLink
    commands. The server responds by echoing the command followed by a
    four‑digit status code and message. It supports a subset of commands
    described in Hudson Robotics' StackLink documentation. Commands that are
@@ -25,11 +25,11 @@ to http://localhost:8000 to view the device state.
 This implementation is intentionally verbose and modular to ease
 development. It can be refactored later as needed.
 """
-
 import logging
 import re
 import socket
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -102,73 +102,61 @@ class Stack:
 class StackLinkState:
     """Mutable state of the virtual StackLink."""
 
-    def __init__(self, num_stops: int = 8, num_stacks: int = 2):
-        # Create stops numbered 1..num_stops
-        self.stops: Dict[int, TrackStop] = {i: TrackStop(i) for i in range(1, num_stops + 1)}
-        # Map lifts (stack indices) to specific stops. Lifts are configured as
-        # stops #3 and #4 by default. Adjust as needed.
-        self.lift_map: Dict[int, int] = {1: 3, 2: 4}
-        # Initialize stacks. By default, stack 1 (input) starts with 15 plates
-        # and stack 2 (output) starts empty. Additional stacks, if present,
-        # default to zero plates.
+    def __init__(self, config_path: str = "config.json"):
+        self.config = self._load_config(config_path)
+        
+        # Initialize stops
+        self.stops: Dict[int, TrackStop] = {}
+        for stop_cfg in self.config["stops"]:
+            stop_id = stop_cfg["id"]
+            self.stops[stop_id] = TrackStop(stop_id)
+        
+        # Initialize stacks and lift_map
         self.stacks: Dict[int, Stack] = {}
-        for i in range(1, num_stacks + 1):
-            default_count = 15 if i == 1 else 0
-            self.stacks[i] = Stack(i, capacity=30, count=default_count)
-        # Version string for VERSION command
-        self.version_info = "StackLink Virtual 1.0.0 (mock)"
-        # Supported command list (names only) for LISTCOMMANDS
-        self.commands: List[str] = [
-            "AcknowledgeSend trackNumber",
-            "AddCoordinates pointName, [constrained], [keyValueInput...]",
-            "AddStop trackNumber, portName, positionName, [flags]",
-            "CompoundShift trackNumber, direction, [times], [receive], [mask]",
-            "DISPENSE trackNumber,liftNumber",
-            "RETURN trackNumber,liftNumber",
-            "MOVEPLATE trackNumber,sourceStop,destinationStop",
-            "SHIFTPLATES trackNumber,direction",
-            "SENDPLATE trackNumber,stopNumber",
-            "RECEIVEPLATE trackNumber,stopNumber",
-            "ACKNOWLEDGESEND trackNumber",
-            "IGNORESTOP trackNumber,stopNumber,ignore",
-            "IGNORESTOPRANGE trackNumber,startStop,endStop,ignore",
-            "IGNOREALLSTOPS trackNumber,ignore",
-            "GETSTOPSENSORS trackNumber",
-            "HASPLATE trackNumber,stopNumber",
-            "GETIGNORESTOP trackNumber,stopNumber",
-            "GETIGNORESTOPS trackNumber",
-            "LISTCOMMANDS [filter]",
-            "VERSION",
-        ]
+        self.lift_map: Dict[int, int] = {}
+        for stop_cfg in self.config["stops"]:
+            if stop_cfg["type"] == "stack":
+                lift_idx = stop_cfg["lift_index"]
+                stop_id = stop_cfg["id"]
+                self.lift_map[lift_idx] = stop_id
+                self.stacks[lift_idx] = Stack(
+                    lift_idx, 
+                    capacity=stop_cfg.get("capacity", 30), 
+                    count=stop_cfg.get("initial_count", 0)
+                )
 
-        # Counter to assign unique identifiers to plates as they are dispensed.
-        # Each call to DISPENSE increments this counter. The IDs are used for
-        # display purposes in the UI.
+        # Version string for VERSION command
+        self.version_info = "StackLink Virtual 1.1.0 (configurable)"
+        
+        # Supported command list (names only) for LISTCOMMANDS
+        self.commands: List[str] = getattr(stacklink_commands, "COMMAND_LIST", [])
+
+        # Counter to assign unique identifiers to plates
         self.next_plate_id: int = 1
 
-        # Store the initial number of plates per stack so we can reset later.
+        # Store the initial number of plates per stack
         self.default_stack_counts: Dict[int, int] = {idx: stack.count for idx, stack in self.stacks.items()}
 
-        # Flags for injecting faults into the simulator. The web UI can toggle
-        # these booleans via the /api/set_error endpoint. When set, they
-        # override normal behavior and force specific error codes. See
-        # individual command handlers for usage. Keys correspond to the
-        # checkboxes presented in the settings panel.
+        # Flags for injecting faults
         self.error_flags: Dict[str, bool] = {
-            # When true, DISPENSE always fails with code 2000 regardless of stack
-            # inventory. Use this to simulate a jammed lift or empty magazine.
             "dispense_failure": False,
-            # When true, DISPENSE and RECEIVEPLATE fail with 2001 indicating
-            # the lift is blocked. Useful to simulate a plate stuck on the lift.
             "lift_blocked": False,
-            # When true, RETURN always fails with 2003 even if the stack has
-            # space. Use to simulate a full output stack or latch failure.
             "stack_full": False,
-            # When true, MOVEPLATE and SHIFTPLATES fail with error code 57
-            # regardless of path availability. This simulates an obstruction
-            # on the track.
             "movement_blocked": False,
         }
+
+    def _load_config(self, path_str: str) -> dict:
+        """Load the layout configuration from a JSON file."""
+        try:
+            with open(path_str, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"Failed to load config from {path_str}: {e}")
+            # Fallback to a minimal default config if loading fails
+            return {
+                "stops": [{"id": i, "type": "camera"} for i in range(1, 9)],
+                "connectors": []
+            }
 
     def set_error_flag(self, name: str, value: bool) -> None:
         """Update an error flag if it exists."""
@@ -233,7 +221,7 @@ class StackLinkState:
 
     # ---- Helper methods for state introspection ----
     def stops_status_string(self) -> str:
-        """Return a comma‑separated list of stop statuses (e.g., '1:Empty, 2:Object')."""
+        """Return a comma-separated list of stop statuses (e.g., '1:Empty, 2:Object')."""
         parts = []
         for i in sorted(self.stops.keys()):
             stop = self.stops[i]
@@ -246,316 +234,31 @@ class StackLinkState:
         ignored_indices = [str(i) for i, stop in self.stops.items() if stop.ignored]
         return ",".join(ignored_indices) if ignored_indices else "None"
 
-    # ---- Command handlers ----
+    # ---- Command handler delegator ----
     def handle_command(self, raw: str) -> Tuple[List[str], str, List[str]]:
-        """
-        Process a single command line. Returns a tuple of (echo_lines, code_message, extra_lines).
-
-        - echo_lines: always contains the command itself.
-        - code_message: string beginning with the four‑digit error code and message.
-        - extra_lines: for LIST commands, additional lines of output that precede 'End of List'.
-        """
+        """Process a single command line by delegating to stacklink_commands module."""
         command = raw.strip()
         echo = [command]
 
         if not command:
             return echo, "0001 Empty command", []
 
-        # Split command and its parameters
         parts = command.split()
         name = parts[0].upper()
         args_str = command[len(parts[0]):].strip()
 
-        # Dispatch
-        handler_name = f"cmd_{name.lower()}"
-        handler = getattr(self, handler_name, None)
-        # If no built‑in handler exists, consult the external command registry
-        if handler is None:
-            # Determine if this command is recognised but not implemented
-            # Use the command registry to get a fallback handler
-            if name.upper() in getattr(stacklink_commands, "COMMAND_LIST", []):
-                handler = stacklink_commands.get_handler(name)
-            else:
-                # Unknown command; return unrecognized
-                return echo, "0001 Unrecognized command", []
+        # Get the handler from the external registry
+        if name.upper() in getattr(stacklink_commands, "COMMAND_LIST", []):
+            handler = stacklink_commands.get_handler(name)
+        else:
+            return echo, "0001 Unrecognized command", []
+
         try:
-            code, message, extra = handler(args_str)
+            code, message, extra = handler(self, args_str)
             return echo, f"{code:04d} {message}", extra
         except Exception:
             logging.exception("Error handling command '%s'", command)
             return echo, "9999 Internal error", []
-
-    # Command implementations return (error_code, message, extra_lines)
-
-    def cmd_version(self, args: str) -> Tuple[int, str, List[str]]:
-        return 0, self.version_info, []
-
-    def cmd_listcommands(self, args: str) -> Tuple[int, str, List[str]]:
-        # Filter commands if a substring is provided
-        query = args.strip()
-        if query:
-            filtered = [c for c in self.commands if query.lower() in c.lower()]
-        else:
-            filtered = list(self.commands)
-        extra = [c for c in filtered]
-        msg = f"Command list ({len(filtered)} commands)"
-        return 0, msg, extra
-
-    def cmd_getstopsensors(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: GETSTOPSENSORS trackNumber
-        try:
-            track = int(args.split(",")[0])  # noqa: F841
-        except Exception:
-            return 1, "Invalid parameters", []
-        # Simply return current sensor status for each stop
-        return 0, self.stops_status_string(), []
-
-    def cmd_hasplate(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: HASPLATE trackNumber,stopNumber
-        try:
-            track_str, stop_str = args.split(",")  # noqa: F841
-            stop = int(stop_str)
-        except Exception:
-            return 1, "Invalid parameters", []
-        if stop not in self.stops:
-            return 1, "Stop out of range", []
-        # Determine plate presence
-        has_plate = self.stops[stop].has_plate
-        status = "Object" if has_plate else "Empty"
-        return 0, status, []
-
-    def cmd_getignorestop(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: GETIGNORESTOP trackNumber,stopNumber
-        try:
-            _, stop_str = args.split(",")
-            stop = int(stop_str)
-        except Exception:
-            return 1, "Invalid parameters", []
-        if stop not in self.stops:
-            return 1, "Stop out of range", []
-        status = "True" if self.stops[stop].ignored else "False"
-        return 0, status, []
-
-    def cmd_getignorestops(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: GETIGNORESTOPS trackNumber
-        ignored = self.ignored_status_string()
-        return 0, f"Ignored stops: {ignored}", []
-
-    def cmd_ignorestop(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: IGNORESTOP trackNumber,stopNumber,ignore
-        try:
-            parts = [x.strip() for x in args.split(",")]
-            track = int(parts[0])  # noqa: F841
-            stop = int(parts[1])
-            ignore = parts[2].lower() in ("true", "1", "yes")
-        except Exception:
-            return 1, "Invalid parameters", []
-        if stop not in self.stops:
-            return 1, "Stop out of range", []
-        self.stops[stop].ignored = ignore
-        return 0, "Success", []
-
-    def cmd_ignorestoprange(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: IGNORESTOPRANGE trackNumber,startStop,endStop,ignore
-        try:
-            parts = [x.strip() for x in args.split(",")]
-            track = int(parts[0])  # noqa: F841
-            start = int(parts[1])
-            end = int(parts[2])
-            ignore = parts[3].lower() in ("true", "1", "yes")
-        except Exception:
-            return 1, "Invalid parameters", []
-        for stop_id in range(start, end + 1):
-            if stop_id in self.stops:
-                self.stops[stop_id].ignored = ignore
-        return 0, "Success", []
-
-    def cmd_ignoreallstops(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: IGNOREALLSTOPS trackNumber,ignore
-        try:
-            parts = [x.strip() for x in args.split(",")]
-            track = int(parts[0])  # noqa: F841
-            ignore = parts[1].lower() in ("true", "1", "yes")
-        except Exception:
-            return 1, "Invalid parameters", []
-        for stop in self.stops.values():
-            stop.ignored = ignore
-        return 0, "Success", []
-
-    def cmd_dispense(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: DISPENSE trackNumber,liftNumber
-        try:
-            track_str, lift_str = args.split(",")  # noqa: F841
-            lift = int(lift_str)
-        except Exception:
-            return 1, "Invalid parameters", []
-        if lift not in self.lift_map:
-            return 1, "Unknown lift", []
-        stop_id = self.lift_map[lift]
-        stack = self.stacks.get(lift)
-        stop = self.stops[stop_id]
-        # Fault injection: lift blocked forces a 2001 error before any other checks
-        if self.error_flags.get("lift_blocked", False):
-            return 2001, "Cannot dispense; lift is blocked", []
-        # Fault injection: dispense failure forces a 2000 error regardless of stack
-        if self.error_flags.get("dispense_failure", False):
-            return 2000, "No object was dispensed", []
-        if stop.has_plate:
-            return 2001, "Cannot dispense; lift is blocked", []
-        # If no stack or stack is empty, return 2000
-        if not stack or not stack.dispense():
-            return 2000, "No object was dispensed", []
-        # Assign a unique ID to the new plate
-        plate_id = self.next_plate_id
-        self.next_plate_id += 1
-        stop.has_plate = True
-        stop.plate_id = plate_id
-        return 0, "Success", []
-
-    def cmd_return(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: RETURN trackNumber,liftNumber
-        try:
-            track_str, lift_str = args.split(",")  # noqa: F841
-            lift = int(lift_str)
-        except Exception:
-            return 1, "Invalid parameters", []
-        if lift not in self.lift_map:
-            return 1, "Unknown lift", []
-        stop_id = self.lift_map[lift]
-        stack = self.stacks.get(lift)
-        stop = self.stops[stop_id]
-        # Fault injection: lift blocked prevents returning a plate
-        if self.error_flags.get("lift_blocked", False):
-            return 2001, "Cannot dispense; lift is blocked", []
-        # Fault injection: stack_full forces a 2003 error regardless of capacity
-        if self.error_flags.get("stack_full", False):
-            return 2003, "Stack full", []
-        if not stop.has_plate:
-            return 2002, "No plate at lift", []
-        # Remove plate from track and return it to the stack
-        stop.has_plate = False
-        stop.plate_id = None
-        if not stack.return_plate():
-            return 2003, "Stack full", []
-        return 0, "Success", []
-
-    def cmd_moveplate(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: MOVEPLATE trackNumber,sourceStop,destinationStop
-        try:
-            parts_int = [int(x.strip()) for x in args.split(",")]
-            track, source, dest = parts_int  # noqa: F841
-        except Exception:
-            return 1, "Invalid parameters", []
-        if source not in self.stops or dest not in self.stops:
-            return 1, "Stop out of range", []
-        # Fault injection: movement_blocked forces a 57 error regardless of path availability
-        if self.error_flags.get("movement_blocked", False):
-            return 57, "Movement blocked", []
-        if not self.stops[source].has_plate:
-            return 2004, "No plate at source", []
-        # Determine direction and path
-        if dest > source:
-            path = range(source + 1, dest + 1)
-        else:
-            path = range(dest, source)
-        for i in path:
-            if i == source:
-                continue
-            if i in self.stops and self.stops[i].has_plate:
-                return 57, "Movement blocked", []
-        # Move the plate and its ID from source to destination
-        self.stops[source].has_plate = False
-        # Transfer plate ID
-        plate_id = self.stops[source].plate_id
-        self.stops[source].plate_id = None
-        self.stops[dest].has_plate = True
-        self.stops[dest].plate_id = plate_id
-        return 0, self.stops_status_string(), []
-
-    def cmd_shiftplates(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: SHIFTPLATES trackNumber,direction
-        try:
-            track_str, direction = [x.strip() for x in args.split(",")]  # noqa: F841
-        except Exception:
-            return 1, "Invalid parameters", []
-        direction = direction.lower()
-        if direction not in ("forward", "fwd", "f", "reverse", "rev", "r"):
-            return 1, "Invalid direction", []
-        forward = direction in ("forward", "fwd", "f")
-        indices = sorted(self.stops.keys())
-        moved = False
-        if forward:
-            for i in reversed(indices):
-                if self.stops[i].has_plate:
-                    next_idx = i + 1
-                    if next_idx not in self.stops or self.stops[next_idx].has_plate:
-                        continue
-                    self.stops[i].has_plate = False
-                    self.stops[next_idx].has_plate = True
-                    moved = True
-        else:
-            for i in indices:
-                if self.stops[i].has_plate:
-                    next_idx = i - 1
-                    if next_idx not in self.stops or self.stops[next_idx].has_plate:
-                        continue
-                    self.stops[i].has_plate = False
-                    self.stops[next_idx].has_plate = True
-                    moved = True
-        # Fault injection: movement_blocked forces a 57 error
-        if self.error_flags.get("movement_blocked", False):
-            return 57, "Movement blocked", []
-        if not moved:
-            return 2005, "No plates moved", []
-        return 0, self.stops_status_string(), []
-
-    def cmd_sendplate(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: SENDPLATE trackNumber,stopNumber
-        try:
-            track_str, stop_str = args.split(",")  # noqa: F841
-            stop = int(stop_str)
-        except Exception:
-            return 1, "Invalid parameters", []
-        if stop not in self.stops:
-            return 1, "Stop out of range", []
-        if not self.stops[stop].has_plate:
-            return 2004, "No plate at source", []
-        self.stops[stop].has_plate = False
-        self.stops[stop].plate_id = None
-        return 0, "Success", []
-
-    def cmd_receiveplate(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: RECEIVEPLATE trackNumber,stopNumber
-        try:
-            track_str, stop_str = args.split(",")  # noqa: F841
-            stop = int(stop_str)
-        except Exception:
-            return 1, "Invalid parameters", []
-        if stop not in self.stops:
-            return 1, "Stop out of range", []
-        # Fault injection: lift_blocked prevents receiving a plate
-        if self.error_flags.get("lift_blocked", False):
-            return 2001, "Cannot dispense; lift is blocked", []
-        if self.stops[stop].has_plate:
-            return 2001, "Cannot dispense; lift is blocked", []
-        self.stops[stop].has_plate = True
-        # Received plates have no identifier in this mock implementation
-        self.stops[stop].plate_id = None
-        return 0, "Success", []
-
-    def cmd_acknowledgesend(self, args: str) -> Tuple[int, str, List[str]]:
-        # Syntax: ACKNOWLEDGESEND trackNumber
-        return 0, "Success", []
-
-    def cmd_getnumtracks(self, args: str) -> Tuple[int, str, List[str]]:
-        """Return the number of tracks in this virtual device.
-
-        Syntax: GETNUMTRACKS
-
-        In this simulator, there is only one track, so this command returns
-        "1". Additional arguments are ignored.
-        """
-        return 0, "1", []
 
 
 class TCPServer(threading.Thread):
@@ -674,6 +377,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                     str(i): {"count": stack.count, "capacity": stack.capacity}
                     for i, stack in self.state.stacks.items()
                 },
+                "config": self.state.config
             }
         )
         if template_str is not None:
@@ -700,11 +404,16 @@ class WebRequestHandler(BaseHTTPRequestHandler):
                 "has_plate": stop.has_plate,
                 "ignored": stop.ignored,
                 "plate_id": stop.plate_id,
+                "type": next((s["type"] for s in self.state.config["stops"] if s["id"] == i), "camera")
             }
             for i, stop in self.state.stops.items()
         }
         stacks = {i: {"count": stack.count, "capacity": stack.capacity} for i, stack in self.state.stacks.items()}
-        data = json.dumps({"stops": stops, "stacks": stacks}).encode("utf-8")
+        data = json.dumps({
+            "stops": stops,
+            "stacks": stacks,
+            "config": self.state.config
+        }).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -860,12 +569,37 @@ def run_http_server(state: StackLinkState, host: str = "0.0.0.0", port: int = 80
 
 
 def main() -> None:
-    state = StackLinkState()
+    # Create the state object from config.json
+    state = StackLinkState("config.json")
+
+    # Start the TCP server
     tcp_server = TCPServer(state)
     tcp_server.start()
-    # Start HTTP server in main thread
-    # The web UI listens on port 8000 by default to avoid conflicts with other services.
-    run_http_server(state, host="0.0.0.0", port=8000)
+
+    # Start the HTTP server
+    def run_http_server_thread():
+        server_address = ("", 8000)
+        httpd = HTTPServer(server_address, lambda *args, **kwargs: WebRequestHandler(*args, state=state, **kwargs))
+        logging.info("HTTP server listening on port 8000")
+        httpd.serve_forever()
+
+    # Run HTTP server in a separate thread to not block the main thread
+    http_thread = threading.Thread(target=run_http_server_thread, daemon=True)
+    http_thread.start()
+
+    # Keep the main thread alive, e.g., by waiting for the TCP server thread (if it were not daemon)
+    # or by a simple loop/sleep if there's nothing else for the main thread to do.
+    # For daemon threads, the program will exit when the main thread exits.
+    # A common pattern is to join non-daemon threads or use a KeyboardInterrupt handler.
+    try:
+        while True:
+            time.sleep(1) # Keep main thread alive
+    except KeyboardInterrupt:
+        logging.info("Shutting down servers...")
+        tcp_server.stop()
+        # httpd.server_close() would be called by the http_thread if it caught KeyboardInterrupt,
+        # but since it's daemon, it will just terminate with the main thread.
+        # If http_thread was not daemon, we would need to signal it to stop and join it.
 
 
 if __name__ == "__main__":

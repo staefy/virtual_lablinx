@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,15 +12,18 @@
       background-color: #f5f5f5;
       color: #333;
     }
+
     h1 {
       color: #006699;
     }
+
     #device {
       display: flex;
       align-items: flex-end;
       justify-content: center;
       margin-top: 30px;
     }
+
     /* Each stop in the track */
     .stop {
       display: flex;
@@ -28,6 +32,7 @@
       margin: 0 6px;
       width: 80px;
     }
+
     /* Tower representing a stack lift */
     .tower {
       position: relative;
@@ -39,6 +44,7 @@
       margin-bottom: 2px;
       box-sizing: border-box;
     }
+
     /* Camera rig above a stop */
     .camera {
       width: 60px;
@@ -49,15 +55,18 @@
       box-sizing: border-box;
       display: none;
     }
+
     /* Visible camera rig */
     .camera.visible {
       display: block;
     }
+
     /* Active camera when the stop is ignored */
     .camera.active {
       background-color: #ffdb99;
       border-color: #d38a00;
     }
+
     /* Track segment where a plate may reside */
     .segment {
       position: relative;
@@ -69,10 +78,12 @@
       border-radius: 0 0 6px 6px;
       box-sizing: border-box;
     }
+
     .segment.occupied {
       background-color: #dff2df;
       border-color: #6aa96a;
     }
+
     /* Visual representation of a plate on the track */
     .plate {
       position: absolute;
@@ -91,6 +102,7 @@
       line-height: 18px;
       text-align: center;
     }
+
     /* Container within tower to stack plate bars */
     .stack-plates {
       position: absolute;
@@ -104,6 +116,7 @@
       height: 100%;
       overflow: hidden;
     }
+
     .stack-plate {
       width: 100%;
       height: 4px;
@@ -112,10 +125,12 @@
       border: 1px solid #2c5aa0;
       border-radius: 1px;
     }
+
     .label {
       margin-top: 2px;
       font-size: 10px;
     }
+
     /* Connector piece between camera rigs */
     .connector {
       width: 20px;
@@ -137,6 +152,7 @@
     }
   </style>
 </head>
+
 <body>
   <h1>Virtual StackLink Simulator</h1>
   <div id="device">
@@ -166,44 +182,36 @@
       <h3 style="margin-top:15px; margin-bottom:5px;">Reset &amp; Stack Counts</h3>
       <div id="reset-controls" style="font-size:14px;">
         <button id="reset-btn" type="button" style="margin-bottom:8px;">Reset State</button><br>
-        <label for="stack1-count">Stack 1:</label>
-        <input id="stack1-count" type="number" min="0" max="30" style="width:50px; margin-right:10px;">
-        <label for="stack2-count">Stack 2:</label>
-        <input id="stack2-count" type="number" min="0" max="30" style="width:50px; margin-right:10px;">
-        <button id="apply-stack-btn" type="button">Apply</button>
+        <div id="stack-inputs"></div>
+        <button id="apply-stack-btn" type="button" style="margin-top:5px;">Apply</button>
       </div>
     </div>
   </details>
   <script>
     // Injected state at page load
     var initialState = __STATE_JSON__;
-    // Define the type of each stop on the track. This reflects the physical layout:
-    // 1: empty, 2: camera, 3: stack (lift 1), 4: stack (lift 2), 5-8: cameras
-    const stopTypes = {
-      '1': 'empty',
-      '2': 'camera',
-      '3': 'stack',
-      '4': 'stack',
-      '5': 'camera',
-      '6': 'camera',
-      '7': 'camera',
-      '8': 'camera'
-    };
+
     function buildUI(state) {
+      const config = state.config || { stops: [], connectors: [] };
       const trackDiv = document.getElementById('track');
       trackDiv.innerHTML = '';
-      const stopIds = Object.keys(state.stops).sort((a, b) => parseInt(a) - parseInt(b));
-      stopIds.forEach((id, idx) => {
-        const type = stopTypes[id] || 'camera';
+
+      const stopsCfg = config.stops || [];
+      const connectorsCfg = config.connectors || [];
+
+      stopsCfg.forEach((stopCfg) => {
+        const id = stopCfg.id;
+        const type = stopCfg.type;
         const stopDiv = document.createElement('div');
         stopDiv.className = 'stop';
         stopDiv.dataset.id = id;
         stopDiv.dataset.type = type;
+
         // Tower for stack stops
         if (type === 'stack') {
+          stopDiv.dataset.liftIndex = stopCfg.lift_index;
           const towerDiv = document.createElement('div');
           towerDiv.className = 'tower';
-          // Text label showing the number of plates
           const towerCount = document.createElement('span');
           towerCount.className = 'tower-count';
           towerCount.style.position = 'absolute';
@@ -214,35 +222,37 @@
           towerCount.style.fontSize = '10px';
           towerCount.style.fontWeight = 'bold';
           towerDiv.appendChild(towerCount);
-          // Container for visualizing plates in the stack
           const platesContainer = document.createElement('div');
           platesContainer.className = 'stack-plates';
           towerDiv.appendChild(platesContainer);
           stopDiv.appendChild(towerDiv);
         }
-        // Camera rig (visible for camera stops)
+
+        // Camera rig
         const cameraDiv = document.createElement('div');
         cameraDiv.className = 'camera';
         if (type === 'camera') {
           cameraDiv.classList.add('visible');
         }
         stopDiv.appendChild(cameraDiv);
+
         // Track segment
         const segDiv = document.createElement('div');
         segDiv.className = 'segment';
-        // Inner plate element that will display the plate ID when present
         const plateEl = document.createElement('div');
         plateEl.className = 'plate';
         segDiv.appendChild(plateEl);
         stopDiv.appendChild(segDiv);
+
         // Label
         const labelDiv = document.createElement('div');
         labelDiv.className = 'label';
         labelDiv.textContent = id;
         stopDiv.appendChild(labelDiv);
         trackDiv.appendChild(stopDiv);
-        // Insert a connector between stops 6 and 7 to represent the mysterious part
-        if (id === '6') {
+
+        // Connectors
+        if (connectorsCfg.some(c => c.after_stop == id)) {
           const connector = document.createElement('div');
           connector.className = 'connector';
           connector.textContent = '';
@@ -251,23 +261,21 @@
       });
       updateUI(state);
     }
+
     function updateUI(state) {
       const stops = state.stops;
-      // Update each stop's occupancy and camera state
       document.querySelectorAll('#track .stop').forEach(stopDiv => {
         const id = stopDiv.dataset.id;
         const type = stopDiv.dataset.type;
         const stop = stops[id];
-        // Camera handling
+        if (!stop) return;
+
         const cameraDiv = stopDiv.querySelector('.camera');
         if (type === 'camera') {
-          if (stop.ignored) {
-            cameraDiv.classList.add('active');
-          } else {
-            cameraDiv.classList.remove('active');
-          }
+          if (stop.ignored) cameraDiv.classList.add('active');
+          else cameraDiv.classList.remove('active');
         }
-        // Occupancy handling and plate label
+
         const segDiv = stopDiv.querySelector('.segment');
         const plateEl = segDiv.querySelector('.plate');
         if (stop.has_plate) {
@@ -283,21 +291,17 @@
             plateEl.textContent = '';
           }
         }
-        // Update tower visuals for stack stops
+
         if (type === 'stack') {
-          const liftIndex = id === '3' ? '1' : '2';
+          const liftIndex = stopDiv.dataset.liftIndex;
           const stackInfo = state.stacks[liftIndex];
-          // Update numeric count
           const towerCount = stopDiv.querySelector('.tower-count');
           if (stackInfo && towerCount) {
             towerCount.textContent = stackInfo.count;
           }
-          // Update visual plate bars
           const platesContainer = stopDiv.querySelector('.stack-plates');
           if (platesContainer && stackInfo) {
-            // Clear existing bars
             platesContainer.innerHTML = '';
-            // Determine how many bars to show. We'll cap at capacity to avoid too many elements.
             const count = stackInfo.count;
             for (let i = 0; i < count; i++) {
               const bar = document.createElement('div');
@@ -309,26 +313,22 @@
       });
     }
 
-    /**
-     * Initialize the settings panel: populate the stop selector, fetch current error flags
-     * and attach event handlers for toggles and plate placement buttons.
-     */
     function initSettingsPanel() {
-      // Populate stop selector if empty
       const select = document.getElementById('plate-stop-select');
       if (select && select.options.length === 0) {
         const placeholder = document.createElement('option');
         placeholder.value = '';
         placeholder.textContent = '--select stop--';
         select.appendChild(placeholder);
-        for (let i = 1; i <= 8; i++) {
+
+        const stopIds = Object.keys(initialState.stops).sort((a, b) => parseInt(a) - parseInt(b));
+        stopIds.forEach(id => {
           const opt = document.createElement('option');
-          opt.value = i;
-          opt.textContent = `Stop ${i}`;
+          opt.value = id;
+          opt.textContent = `Stop ${id}`;
           select.appendChild(opt);
-        }
+        });
       }
-      // Fetch existing error flags to sync checkbox state
       fetch('/api/errors')
         .then(res => res.ok ? res.json() : {})
         .then(flags => {
@@ -338,19 +338,17 @@
           });
         })
         .catch(err => console.warn('Failed to fetch error flags', err));
-      // Attach change handlers to all error checkboxes
       const errorContainer = document.getElementById('error-controls');
       if (errorContainer) {
         errorContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
           cb.addEventListener('change', () => {
-            const name = cb.id.replace('err-','');
+            const name = cb.id.replace('err-', '');
             const value = cb.checked;
             fetch(`/api/set_error?name=${encodeURIComponent(name)}&value=${value}`)
               .catch(err => console.warn('Failed to set error flag', err));
           });
         });
       }
-      // Plate placement buttons
       const addBtn = document.getElementById('add-plate-btn');
       const removeBtn = document.getElementById('remove-plate-btn');
       if (addBtn) {
@@ -371,46 +369,37 @@
             .catch(err => console.warn('Failed to remove plate', err));
         });
       }
-
-      // Reset button
       const resetBtn = document.getElementById('reset-btn');
       if (resetBtn) {
         resetBtn.addEventListener('click', () => {
           fetch('/api/reset_state')
             .then(() => {
-              // Refresh UI and update stack inputs after reset
               refresh();
               updateStackInputs();
             })
             .catch(err => console.warn('Failed to reset state', err));
         });
       }
-      // Apply stack counts button
       const applyStackBtn = document.getElementById('apply-stack-btn');
       if (applyStackBtn) {
         applyStackBtn.addEventListener('click', () => {
-          const s1 = document.getElementById('stack1-count');
-          const s2 = document.getElementById('stack2-count');
-          const c1 = parseInt(s1.value, 10);
-          const c2 = parseInt(s2.value, 10);
+          const inputs = document.querySelectorAll('#stack-inputs input');
           const promises = [];
-          if (!isNaN(c1)) {
-            promises.push(fetch(`/api/set_stack?stack=1&count=${c1}`));
-          }
-          if (!isNaN(c2)) {
-            promises.push(fetch(`/api/set_stack?stack=2&count=${c2}`));
-          }
+          inputs.forEach(input => {
+            const liftIndex = input.dataset.liftIndex;
+            const count = parseInt(input.value, 10);
+            if (!isNaN(count)) {
+              promises.push(fetch(`/api/set_stack?stack=${liftIndex}&count=${count}`));
+            }
+          });
           Promise.all(promises)
             .then(() => {
-              // Refresh UI and update inputs after applying new counts
               refresh();
               updateStackInputs();
             })
             .catch(err => console.warn('Failed to set stack counts', err));
         });
       }
-
-      // Immediately fetch state to populate UI and stack count inputs once
       refresh();
       updateStackInputs();
     }
@@ -419,40 +408,51 @@
         const response = await fetch('/api/state');
         const data = await response.json();
         updateUI(data);
-        // Do not update the stack count inputs here. They should remain
-        // editable by the user and will be refreshed only when explicitly
-        // requested (e.g., after reset or applying counts).
       } catch (e) {
         console.error('Failed to refresh state', e);
       }
     }
-
-    /**
-     * Fetch the current stack counts from the server and populate the
-     * input fields. This is called once on page load and after actions
-     * that modify the stacks, such as reset or applying new counts.
-     */
     async function updateStackInputs() {
       try {
         const response = await fetch('/api/state');
         const data = await response.json();
-        const s1Input = document.getElementById('stack1-count');
-        const s2Input = document.getElementById('stack2-count');
-        if (s1Input && data.stacks && data.stacks['1']) {
-          s1Input.value = data.stacks['1'].count;
-        }
-        if (s2Input && data.stacks && data.stacks['2']) {
-          s2Input.value = data.stacks['2'].count;
+        const container = document.getElementById('stack-inputs');
+        if (!container) return;
+        if (container.innerHTML === '') {
+          const liftIndices = Object.keys(data.stacks).sort((a, b) => parseInt(a) - parseInt(b));
+          liftIndices.forEach(idx => {
+            const div = document.createElement('div');
+            div.style.marginBottom = '5px';
+            const label = document.createElement('label');
+            label.textContent = `Stack ${idx}: `;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = '0';
+            input.max = data.stacks[idx].capacity;
+            input.value = data.stacks[idx].count;
+            input.style.width = '50px';
+            input.dataset.liftIndex = idx;
+            div.appendChild(label);
+            div.appendChild(input);
+            container.appendChild(div);
+          });
+        } else {
+          const inputs = container.querySelectorAll('input');
+          inputs.forEach(input => {
+            const idx = input.dataset.liftIndex;
+            if (data.stacks[idx]) {
+              input.value = data.stacks[idx].count;
+            }
+          });
         }
       } catch (e) {
         console.warn('Failed to update stack input values', e);
       }
     }
-    // Build initial UI and schedule updates
     buildUI(initialState);
-    // Initialize settings UI on first load
     initSettingsPanel();
     setInterval(refresh, 1000);
   </script>
 </body>
+
 </html>

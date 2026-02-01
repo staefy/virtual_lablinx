@@ -1,0 +1,47 @@
+{
+    "stops": [
+        {
+            "id": 1,
+            "type": "empty"
+        },
+        {
+            "id": 2,
+            "type": "camera"
+        },
+        {
+            "id": 3,
+            "type": "stack",
+            "lift_index": 1,
+            "initial_count": 15,
+            "capacity": 30
+        },
+        {
+            "id": 4,
+            "type": "stack",
+            "lift_index": 2,
+            "initial_count": 0,
+            "capacity": 30
+        },
+        {
+            "id": 5,
+            "type": "camera"
+        },
+        {
+            "id": 6,
+            "type": "camera"
+        },
+        {
+            "id": 7,
+            "type": "camera"
+        },
+        {
+            "id": 8,
+            "type": "camera"
+        }
+    ],
+    "connectors": [
+        {
+            "after_stop": 6
+        }
+    ]
+}
