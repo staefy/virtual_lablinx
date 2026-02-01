@@ -33,6 +33,14 @@ import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+# Import the command registry for unimplemented commands
+try:
+    from . import stacklink_commands
+except ImportError:
+    # When running as a script without package context, fall back to
+    # relative import. This allows the module to be executed directly.
+    import stacklink_commands  # type: ignore
+
 # We avoid external dependencies like Flask by using Python's built‑in HTTP server.
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
@@ -160,10 +168,6 @@ class StackLinkState:
             # regardless of path availability. This simulates an obstruction
             # on the track.
             "movement_blocked": False,
-            # When true, the HASPLATE and GETSTOPSENSORS commands invert
-            # the sensor readings (empty appears full and vice versa). This
-            # simulates a malfunctioning or dirty optical sensor.
-            "sensor_misreport": False,
         }
 
     def set_error_flag(self, name: str, value: bool) -> None:
@@ -265,8 +269,15 @@ class StackLinkState:
         # Dispatch
         handler_name = f"cmd_{name.lower()}"
         handler = getattr(self, handler_name, None)
+        # If no built‑in handler exists, consult the external command registry
         if handler is None:
-            return echo, "0001 Unrecognized command", []
+            # Determine if this command is recognised but not implemented
+            # Use the command registry to get a fallback handler
+            if name.upper() in getattr(stacklink_commands, "COMMAND_LIST", []):
+                handler = stacklink_commands.get_handler(name)
+            else:
+                # Unknown command; return unrecognized
+                return echo, "0001 Unrecognized command", []
         try:
             code, message, extra = handler(args_str)
             return echo, f"{code:04d} {message}", extra
@@ -296,14 +307,7 @@ class StackLinkState:
             track = int(args.split(",")[0])  # noqa: F841
         except Exception:
             return 1, "Invalid parameters", []
-        # Fault injection: invert sensor readings across all stops
-        if self.error_flags.get("sensor_misreport", False):
-            parts = []
-            for i in sorted(self.stops.keys()):
-                stop = self.stops[i]
-                status = "Empty" if stop.has_plate else "Object"
-                parts.append(f"{i}:{status}")
-            return 0, ", ".join(parts), []
+        # Simply return current sensor status for each stop
         return 0, self.stops_status_string(), []
 
     def cmd_hasplate(self, args: str) -> Tuple[int, str, List[str]]:
@@ -315,11 +319,8 @@ class StackLinkState:
             return 1, "Invalid parameters", []
         if stop not in self.stops:
             return 1, "Stop out of range", []
-        # Determine true plate presence
+        # Determine plate presence
         has_plate = self.stops[stop].has_plate
-        # Fault injection: invert sensor reading if enabled
-        if self.error_flags.get("sensor_misreport", False):
-            has_plate = not has_plate
         status = "Object" if has_plate else "Empty"
         return 0, status, []
 
@@ -545,6 +546,16 @@ class StackLinkState:
     def cmd_acknowledgesend(self, args: str) -> Tuple[int, str, List[str]]:
         # Syntax: ACKNOWLEDGESEND trackNumber
         return 0, "Success", []
+
+    def cmd_getnumtracks(self, args: str) -> Tuple[int, str, List[str]]:
+        """Return the number of tracks in this virtual device.
+
+        Syntax: GETNUMTRACKS
+
+        In this simulator, there is only one track, so this command returns
+        "1". Additional arguments are ignored.
+        """
+        return 0, "1", []
 
 
 class TCPServer(threading.Thread):

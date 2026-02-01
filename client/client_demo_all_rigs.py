@@ -99,6 +99,28 @@ def get_error_flags() -> dict:
         return {}
 
 
+def get_stack_count(stack_num: int) -> int:
+    """Return the current count of plates in the specified stack.
+
+    This helper queries the simulator's /api/state endpoint and extracts
+    the plate count for the given stack index (as a string key). If the
+    request fails, zero is returned. Only stack 1 is currently used in
+    this script.
+    """
+    url = f"http://{HOST}:8000/api/state"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = resp.read().decode()
+            state = json.loads(data)
+            stacks = state.get("stacks", {})
+            info = stacks.get(str(stack_num), None)
+            if info is not None:
+                return int(info.get("count", 0))
+    except Exception:
+        pass
+    return 0
+
+
 def handle_error(code: int, command: str) -> None:
     """Handle a non-zero error code by prompting the user to resolve the issue.
 
@@ -148,14 +170,29 @@ def attempt_command(conn: socket.socket, command: str, empty_ok_code: Optional[i
         # reflects a simulated jam and should be treated as an error. Check
         # the current error flags to distinguish these cases.
         if empty_ok_code is not None and code == empty_ok_code:
-            # Special handling for DISPENSE when code == 2000
+            # Special handling when the returned code matches the designated
+            # 'empty' code (e.g. 2000 for DISPENSE). Not all 2000 responses
+            # indicate an actual empty stack; some may arise from jam or
+            # other simulated faults. To distinguish, inspect the current
+            # error flags and the remaining plate count. If any error flag
+            # is active or there are still plates in the input stack, we
+            # treat this as an error and prompt the user to resolve it.
             if empty_ok_code == 2000:
-                # Query the simulator's error flags
+                # Query all error flags. If any flag is true, we assume
+                # the 2000 is due to a simulated jam/fault rather than
+                # genuine emptiness.
                 flags = get_error_flags()
-                if flags.get("dispense_failure", False):
-                    # A dispense failure error is active; treat this as an error
+                if any(flags.values()):
                     handle_error(code, command)
                     continue
+                # If there are still plates in the input stack, treat
+                # 2000 as a jam and prompt for resolution.
+                remaining = get_stack_count(1)
+                if remaining > 0:
+                    handle_error(code, command)
+                    continue
+            # If no flags are active and the stack is empty, treat as
+            # legitimate empty condition and return the code.
             return code
         # Any other error should prompt the user and retry
         handle_error(code, command)
