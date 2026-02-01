@@ -8,6 +8,14 @@ A configurable virtual simulator for the StackLink device, featuring a TCP comma
 - **Web UI**: Real-time visualization of plates, stacks, and track status on port 8000.
 - **TCP Server**: Accepts standard StackLink commands on port 7000.
 
+Visualisation based on config file:
+<img width="2036" height="428" alt="image" src="https://github.com/user-attachments/assets/752b8a5a-e2d5-452b-8e9d-46e0ccc5393a" />
+
+and some UI to control simulation state:
+
+<img width="323" height="369" alt="image" src="https://github.com/user-attachments/assets/cfa534a4-68c4-4f22-a856-2c473bcc6956" />
+
+
 ## Getting Started
 
 1. **Configure**: Edit `config.json` to define your physical laboratory layout.
