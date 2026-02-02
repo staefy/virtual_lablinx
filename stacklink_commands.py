@@ -18,6 +18,8 @@ implemented in the virtual simulator; the remainder will return
 """
 
 import logging
+import threading
+import time
 from typing import List, Tuple, Dict, Callable, Optional, Any
 
 # List of all commands recognised by the simulator.
@@ -222,9 +224,9 @@ def cmd_dispense(state: Any, args: str) -> Tuple[int, str, List[str]]:
     stop_id = state.lift_map[lift]
     stack = state.stacks.get(lift)
     stop = state.stops[stop_id]
-    if state.error_flags.get("lift_blocked", False):
+    if state.error_flags.get(f"lift_blocked_{lift}", False):
         return 2001, "Cannot dispense; lift is blocked", []
-    if state.error_flags.get("dispense_failure", False):
+    if state.error_flags.get(f"dispense_failure_{lift}", False):
         return 2000, "No object was dispensed", []
     if stop.has_plate:
         return 2001, "Cannot dispense; lift is blocked", []
@@ -232,6 +234,10 @@ def cmd_dispense(state: Any, args: str) -> Tuple[int, str, List[str]]:
         return 2000, "No object was dispensed", []
     plate_id = state.next_plate_id
     state.next_plate_id += 1
+    
+    # Synchronous hardware delay
+    time.sleep(state.dispense_time)
+    
     stop.has_plate = True
     stop.plate_id = plate_id
     return 0, "Success", []
@@ -248,15 +254,20 @@ def cmd_return(state: Any, args: str) -> Tuple[int, str, List[str]]:
     stop_id = state.lift_map[lift]
     stack = state.stacks.get(lift)
     stop = state.stops[stop_id]
-    if state.error_flags.get("lift_blocked", False):
+    if state.error_flags.get(f"lift_blocked_{lift}", False):
         return 2001, "Cannot dispense; lift is blocked", []
-    if state.error_flags.get("stack_full", False):
+    if state.error_flags.get(f"stack_full_{lift}", False):
         return 2003, "Stack full", []
     if not stop.has_plate:
         return 2002, "No plate at lift", []
     stop.has_plate = False
     stop.plate_id = None
+    
+    # Synchronous hardware delay
+    time.sleep(state.return_time)
+    
     if not stack.return_plate():
+        # This shouldn't happen if we checked before, but for safety
         return 2003, "Stack full", []
     return 0, "Success", []
 
@@ -285,6 +296,25 @@ def cmd_moveplate(state: Any, args: str) -> Tuple[int, str, List[str]]:
     state.stops[source].has_plate = False
     plate_id = state.stops[source].plate_id
     state.stops[source].plate_id = None
+    
+    # Synchronous hardware delay with active tracking for animation
+    distance = abs(dest - source)
+    duration = distance * state.move_time_per_segment
+    
+    if plate_id is not None:
+        state.active_moves[plate_id] = {
+            "source": source,
+            "dest": dest,
+            "duration": duration,
+            "start_time": time.time()
+        }
+    
+    try:
+        time.sleep(duration)
+    finally:
+        if plate_id is not None:
+            state.active_moves.pop(plate_id, None)
+    
     state.stops[dest].has_plate = True
     state.stops[dest].plate_id = plate_id
     return 0, state.stops_status_string(), []
@@ -349,7 +379,9 @@ def cmd_receiveplate(state: Any, args: str) -> Tuple[int, str, List[str]]:
         return 1, "Invalid parameters", []
     if stop not in state.stops:
         return 1, "Stop out of range", []
-    if state.error_flags.get("lift_blocked", False):
+    # Find lift index for this stop if it's a stack stop
+    lift_idx = next((k for k, v in state.lift_map.items() if v == stop), None)
+    if lift_idx is not None and state.error_flags.get(f"lift_blocked_{lift_idx}", False):
         return 2001, "Cannot dispense; lift is blocked", []
     if state.stops[stop].has_plate:
         return 2001, "Cannot dispense; lift is blocked", []

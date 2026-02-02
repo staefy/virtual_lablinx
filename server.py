@@ -137,13 +137,24 @@ class StackLinkState:
         # Store the initial number of plates per stack
         self.default_stack_counts: Dict[int, int] = {idx: stack.count for idx, stack in self.stacks.items()}
 
-        # Flags for injecting faults
+        # Initial global error flags
         self.error_flags: Dict[str, bool] = {
-            "dispense_failure": False,
-            "lift_blocked": False,
-            "stack_full": False,
             "movement_blocked": False,
         }
+        # Add per-stacker flags
+        for lift_idx in self.stacks.keys():
+            self.error_flags[f"dispense_failure_{lift_idx}"] = False
+            self.error_flags[f"lift_blocked_{lift_idx}"] = False
+            self.error_flags[f"stack_full_{lift_idx}"] = False
+
+        # Configuration-driven timings (default to 1s)
+        timings = self.config.get("timings", {})
+        self.dispense_time = float(timings.get("dispense_time", 1.0))
+        self.return_time = float(timings.get("return_time", 1.0))
+        self.move_time_per_segment = float(timings.get("move_time_per_segment", 1.0))
+
+        # Track active movements for animation [plate_id] -> {source, dest, start_time, duration}
+        self.active_moves: Dict[int, dict] = {}
 
     def _load_config(self, path_str: str) -> dict:
         """Load the layout configuration from a JSON file."""
@@ -159,9 +170,8 @@ class StackLinkState:
             }
 
     def set_error_flag(self, name: str, value: bool) -> None:
-        """Update an error flag if it exists."""
-        if name in self.error_flags:
-            self.error_flags[name] = value
+        """Update an error flag if it exists. Replaces existing flag if name starts with prefix."""
+        self.error_flags[name] = value
 
     def set_plate_presence(self, stop: int, present: bool) -> bool:
         """Manually set the presence of a plate at a given stop. Returns False if stop is invalid."""
@@ -247,8 +257,9 @@ class StackLinkState:
         name = parts[0].upper()
         args_str = command[len(parts[0]):].strip()
 
-        # Get the handler from the external registry
-        if name.upper() in getattr(stacklink_commands, "COMMAND_LIST", []):
+        # Get the handler from the external registry (case-insensitive check)
+        cmd_list_upper = {c.upper() for c in getattr(stacklink_commands, "COMMAND_LIST", [])}
+        if name in cmd_list_upper:
             handler = stacklink_commands.get_handler(name)
         else:
             return echo, "0001 Unrecognized command", []
@@ -412,6 +423,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
         data = json.dumps({
             "stops": stops,
             "stacks": stacks,
+            "active_moves": self.state.active_moves,
             "config": self.state.config
         }).encode("utf-8")
         self.send_response(200)

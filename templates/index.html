@@ -18,10 +18,35 @@
     }
 
     #device {
+      position: relative;
+      display: inline-block;
+      margin: 30px auto;
+      background-color: #eee;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    #track-container {
+      position: relative;
       display: flex;
       align-items: flex-end;
-      justify-content: center;
-      margin-top: 30px;
+    }
+
+    #track {
+      display: flex;
+      align-items: flex-end;
+    }
+
+    /* Overlay for animated plates */
+    #plate-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
     }
 
     /* Each stop in the track */
@@ -36,8 +61,8 @@
     /* Tower representing a stack lift */
     .tower {
       position: relative;
-      width: 30px;
-      height: 120px;
+      width: 32px;
+      height: 180px;
       background-color: #555;
       border: 2px solid #333;
       border-radius: 4px;
@@ -56,18 +81,16 @@
       display: none;
     }
 
-    /* Visible camera rig */
     .camera.visible {
       display: block;
     }
 
-    /* Active camera when the stop is ignored */
     .camera.active {
       background-color: #ffdb99;
       border-color: #d38a00;
     }
 
-    /* Track segment where a plate may reside */
+    /* Track segment */
     .segment {
       position: relative;
       width: 70px;
@@ -84,7 +107,7 @@
       border-color: #6aa96a;
     }
 
-    /* Visual representation of a plate on the track */
+    /* Static Plate representation (hidden when moving) */
     .plate {
       position: absolute;
       left: 50%;
@@ -101,9 +124,29 @@
       font-weight: bold;
       line-height: 18px;
       text-align: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
-    /* Container within tower to stack plate bars */
+    /* Moving plate in overlay */
+    .moving-plate {
+      position: absolute;
+      width: 48px;
+      height: 18px;
+      background-color: #4a90e2;
+      border: 1px solid #2c5aa0;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 10px;
+      font-weight: bold;
+      line-height: 18px;
+      text-align: center;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      filter: brightness(1.1);
+      transition: left linear;
+      /* Duration set by JS */
+    }
+
     .stack-plates {
       position: absolute;
       bottom: 2px;
@@ -119,7 +162,7 @@
 
     .stack-plate {
       width: 100%;
-      height: 4px;
+      height: 3px;
       margin-bottom: 1px;
       background-color: #4a90e2;
       border: 1px solid #2c5aa0;
@@ -129,67 +172,70 @@
     .label {
       margin-top: 2px;
       font-size: 10px;
+      font-weight: bold;
+      color: #666;
     }
 
-    /* Connector piece between camera rigs */
     .connector {
       width: 20px;
       height: 20px;
-      margin: 0 4px;
+      margin: 0 2px;
       background-color: #b0b0b0;
       border: 1px solid #888;
       border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-    }
-
-    /* Ensure the track is laid out horizontally */
-    #track {
-      display: flex;
-      align-items: flex-end;
+      align-self: flex-end;
+      margin-bottom: 15px;
     }
   </style>
 </head>
 
 <body>
   <h1>Virtual StackLink Simulator</h1>
-  <div id="device">
-    <div id="track"></div>
+  <div style="text-align:center;">
+    <div id="device">
+      <div id="track-container">
+        <div id="track"></div>
+        <div id="plate-overlay"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- Settings panel for injecting faults and manually placing plates -->
   <details id="settings-panel" style="margin-top:20px;">
-    <summary style="font-size:16px; cursor:pointer;">Simulation Settings</summary>
-    <div style="margin-top:10px;">
-      <h3 style="margin-bottom:5px;">Mock Errors</h3>
-      <div id="error-controls" style="font-size:14px; line-height:1.6;">
-        <label><input type="checkbox" id="err-dispense_failure"> Dispense failure (2000)</label><br>
-        <label><input type="checkbox" id="err-lift_blocked"> Lift blocked (2001)</label><br>
-        <label><input type="checkbox" id="err-stack_full"> Stack full (2003)</label><br>
-        <label><input type="checkbox" id="err-movement_blocked"> Movement blocked (57)</label><br>
-        <!-- Sensor misreport has been removed from the simulation -->
-      </div>
-      <h3 style="margin-top:15px; margin-bottom:5px;">Manual Plate Placement</h3>
-      <div id="plate-controls" style="font-size:14px;">
-        <label for="plate-stop-select">Stop:</label>
-        <select id="plate-stop-select" style="margin-right:5px;"></select>
-        <button id="add-plate-btn" type="button">Add plate</button>
-        <button id="remove-plate-btn" type="button" style="margin-left:5px;">Remove plate</button>
+    <summary style="font-size:16px; cursor:pointer; font-weight:bold;">Simulation Settings</summary>
+    <div style="margin-top:10px; display: flex; gap: 40px; flex-wrap: wrap;">
+      <div>
+        <h3 style="margin-bottom:5px;">Mock Errors</h3>
+        <div id="error-controls"
+          style="font-size:14px; line-height:1.6; max-height: 300px; overflow-y: auto; padding-right: 10px;">
+          <!-- Error controls will be populated dynamically -->
+        </div>
       </div>
 
-      <h3 style="margin-top:15px; margin-bottom:5px;">Reset &amp; Stack Counts</h3>
-      <div id="reset-controls" style="font-size:14px;">
-        <button id="reset-btn" type="button" style="margin-bottom:8px;">Reset State</button><br>
-        <div id="stack-inputs"></div>
-        <button id="apply-stack-btn" type="button" style="margin-top:5px;">Apply</button>
+      <div>
+        <h3 style="margin-bottom:5px;">Manual Plate Placement</h3>
+        <div id="plate-controls" style="font-size:14px;">
+          <label for="plate-stop-select">Stop:</label>
+          <select id="plate-stop-select" style="margin-right:5px;"></select>
+          <button id="add-plate-btn" type="button">Add plate</button>
+          <button id="remove-plate-btn" type="button" style="margin-left:5px;">Remove plate</button>
+        </div>
+
+        <h3 style="margin-top:15px; margin-bottom:5px;">Reset &amp; Stack Counts</h3>
+        <div id="reset-controls" style="font-size:14px;">
+          <button id="reset-btn" type="button"
+            style="margin-bottom:8px; background: #cc3333; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Reset
+            Entire Device</button><br>
+          <div id="stack-inputs"></div>
+          <button id="apply-stack-btn" type="button" style="margin-top:5px;">Apply Counts</button>
+        </div>
       </div>
     </div>
   </details>
+
   <script>
-    // Injected state at page load
     var initialState = __STATE_JSON__;
+    var activeMoveElements = {}; // plate_id -> element
+    var lastState = null;
 
     function buildUI(state) {
       const config = state.config || { stops: [], connectors: [] };
@@ -204,10 +250,10 @@
         const type = stopCfg.type;
         const stopDiv = document.createElement('div');
         stopDiv.className = 'stop';
+        stopDiv.id = 'stop-' + id;
         stopDiv.dataset.id = id;
         stopDiv.dataset.type = type;
 
-        // Tower for stack stops
         if (type === 'stack') {
           stopDiv.dataset.liftIndex = stopCfg.lift_index;
           const towerDiv = document.createElement('div');
@@ -228,15 +274,11 @@
           stopDiv.appendChild(towerDiv);
         }
 
-        // Camera rig
         const cameraDiv = document.createElement('div');
         cameraDiv.className = 'camera';
-        if (type === 'camera') {
-          cameraDiv.classList.add('visible');
-        }
+        if (type === 'camera') cameraDiv.classList.add('visible');
         stopDiv.appendChild(cameraDiv);
 
-        // Track segment
         const segDiv = document.createElement('div');
         segDiv.className = 'segment';
         const plateEl = document.createElement('div');
@@ -244,31 +286,54 @@
         segDiv.appendChild(plateEl);
         stopDiv.appendChild(segDiv);
 
-        // Label
         const labelDiv = document.createElement('div');
         labelDiv.className = 'label';
         labelDiv.textContent = id;
         stopDiv.appendChild(labelDiv);
         trackDiv.appendChild(stopDiv);
 
-        // Connectors
         if (connectorsCfg.some(c => c.after_stop == id)) {
           const connector = document.createElement('div');
           connector.className = 'connector';
-          connector.textContent = '';
           trackDiv.appendChild(connector);
         }
       });
       updateUI(state);
     }
 
+    // Precise coordinate calculation using getBoundingClientRect
+    function getPlateCoords(stopId) {
+      const stopDiv = document.getElementById('stop-' + stopId);
+      const overlay = document.getElementById('plate-overlay');
+      if (!stopDiv || !overlay) return { x: 0, y: 0 };
+
+      const segDiv = stopDiv.querySelector('.segment');
+      const stopRect = segDiv.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+
+      return {
+        x: stopRect.left - overlayRect.left + (stopRect.width / 2) - 24, // 24 is half plate width
+        y: stopRect.top - overlayRect.top + (stopRect.height / 2) - 9  // 9 is half plate height
+      };
+    }
+
     function updateUI(state) {
       const stops = state.stops;
+      const activeMoves = state.active_moves || {};
+      const overlay = document.getElementById('plate-overlay');
+
+      // Update static stops
       document.querySelectorAll('#track .stop').forEach(stopDiv => {
         const id = stopDiv.dataset.id;
         const type = stopDiv.dataset.type;
         const stop = stops[id];
         if (!stop) return;
+
+        // Hide static plate if it's currently moving (as source OR dest)
+        const isMoving = Object.keys(activeMoves).some(pid => {
+          const m = activeMoves[pid];
+          return m.source == id || m.dest == id;
+        });
 
         const cameraDiv = stopDiv.querySelector('.camera');
         if (type === 'camera') {
@@ -278,7 +343,7 @@
 
         const segDiv = stopDiv.querySelector('.segment');
         const plateEl = segDiv.querySelector('.plate');
-        if (stop.has_plate) {
+        if (stop.has_plate && !isMoving) {
           segDiv.classList.add('occupied');
           if (plateEl) {
             plateEl.style.display = 'block';
@@ -288,7 +353,6 @@
           segDiv.classList.remove('occupied');
           if (plateEl) {
             plateEl.style.display = 'none';
-            plateEl.textContent = '';
           }
         }
 
@@ -296,18 +360,79 @@
           const liftIndex = stopDiv.dataset.liftIndex;
           const stackInfo = state.stacks[liftIndex];
           const towerCount = stopDiv.querySelector('.tower-count');
-          if (stackInfo && towerCount) {
-            towerCount.textContent = stackInfo.count;
-          }
+          if (stackInfo && towerCount) towerCount.textContent = stackInfo.count;
           const platesContainer = stopDiv.querySelector('.stack-plates');
           if (platesContainer && stackInfo) {
             platesContainer.innerHTML = '';
-            const count = stackInfo.count;
-            for (let i = 0; i < count; i++) {
+            for (let i = 0; i < stackInfo.count; i++) {
               const bar = document.createElement('div');
               bar.className = 'stack-plate';
               platesContainer.appendChild(bar);
             }
+          }
+        }
+      });
+
+      // Update Animated Overlay
+      // 1. Remove elements no longer moving
+      Object.keys(activeMoveElements).forEach(pid => {
+        if (!activeMoves[pid]) {
+          activeMoveElements[pid].remove();
+          delete activeMoveElements[pid];
+        }
+      });
+
+      // 2. Clear old ones if source/dest mismatch (safety)
+      Object.keys(activeMoves).forEach(pid => {
+        const move = activeMoves[pid];
+        const el = activeMoveElements[pid];
+        if (el && (el.dataset.source != move.source || el.dataset.dest != move.dest)) {
+          el.remove();
+          delete activeMoveElements[pid];
+        }
+      });
+
+      // 3. Add/Sync elements for active moves
+      Object.keys(activeMoves).forEach(pid => {
+        const move = activeMoves[pid];
+        let el = activeMoveElements[pid];
+
+        // Calculate remaining time
+        const now = Date.now() / 1000;
+        const elapsed = now - move.start_time;
+        const remaining = move.duration - elapsed;
+
+        if (remaining <= 0) return; // Should be handled by next refresh or state change
+
+        if (!el) {
+          el = document.createElement('div');
+          el.className = 'moving-plate';
+          el.textContent = pid;
+          el.dataset.source = move.source;
+          el.dataset.dest = move.dest;
+
+          const startCoords = getPlateCoords(move.source);
+          el.style.left = startCoords.x + 'px';
+          el.style.top = startCoords.y + 'px';
+          el.style.transition = 'none'; // No transition for spawn
+
+          overlay.appendChild(el);
+          activeMoveElements[pid] = el;
+
+          // Trigger transition in next frame
+          setTimeout(() => {
+            if (!activeMoveElements[pid]) return;
+            const endCoords = getPlateCoords(move.dest);
+            el.style.transition = `left ${remaining}s linear`;
+            el.style.left = endCoords.x + 'px';
+          }, 20);
+        } else {
+          // Already moving, just sync duration if it's lagging
+          const currentDuration = parseFloat(el.style.transitionDuration) || 0;
+          if (Math.abs(currentDuration - remaining) > 0.5) {
+            const endCoords = getPlateCoords(move.dest);
+            el.style.transition = `left ${remaining}s linear`;
+            el.style.left = endCoords.x + 'px';
           }
         }
       });
@@ -329,129 +454,107 @@
           select.appendChild(opt);
         });
       }
-      fetch('/api/errors')
-        .then(res => res.ok ? res.json() : {})
-        .then(flags => {
-          Object.keys(flags).forEach(key => {
-            const cb = document.getElementById('err-' + key);
-            if (cb) cb.checked = !!flags[key];
-          });
-        })
-        .catch(err => console.warn('Failed to fetch error flags', err));
+
       const errorContainer = document.getElementById('error-controls');
       if (errorContainer) {
-        errorContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        errorContainer.innerHTML = '';
+        const globalErrors = [{ id: 'movement_blocked', label: 'Movement blocked (57)' }];
+        globalErrors.forEach(err => {
+          const lb = document.createElement('label');
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.id = 'err-' + err.id;
+          lb.appendChild(cb);
+          lb.appendChild(document.createTextNode(' ' + err.label));
+          errorContainer.appendChild(lb);
+          errorContainer.appendChild(document.createElement('br'));
           cb.addEventListener('change', () => {
-            const name = cb.id.replace('err-', '');
-            const value = cb.checked;
-            fetch(`/api/set_error?name=${encodeURIComponent(name)}&value=${value}`)
-              .catch(err => console.warn('Failed to set error flag', err));
+            fetch(`/api/set_error?name=${encodeURIComponent(err.id)}&value=${cb.checked}`);
+          });
+        });
+
+        const liftIndices = Object.keys(initialState.stacks).sort((a, b) => parseInt(a) - parseInt(b));
+        liftIndices.forEach(idx => {
+          const hr = document.createElement('hr');
+          hr.style.margin = '10px 0';
+          errorContainer.appendChild(hr);
+          const stackErrors = [
+            { suffix: 'dispense_failure', label: 'Dispense failure' },
+            { suffix: 'lift_blocked', label: 'Lift blocked' },
+            { suffix: 'stack_full', label: 'Stack full' }
+          ];
+          stackErrors.forEach(err => {
+            const key = `${err.suffix}_${idx}`;
+            const lb = document.createElement('label');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.id = 'err-' + key;
+            lb.appendChild(cb);
+            lb.appendChild(document.createTextNode(` Stack ${idx}: ${err.label}`));
+            errorContainer.appendChild(lb);
+            errorContainer.appendChild(document.createElement('br'));
+            cb.addEventListener('change', () => {
+              fetch(`/api/set_error?name=${encodeURIComponent(key)}&value=${cb.checked}`);
+            });
           });
         });
       }
-      const addBtn = document.getElementById('add-plate-btn');
-      const removeBtn = document.getElementById('remove-plate-btn');
-      if (addBtn) {
-        addBtn.addEventListener('click', () => {
-          const stop = select.value;
-          if (!stop) return;
-          fetch(`/api/set_plate?stop=${stop}&present=true`)
-            .then(() => refresh())
-            .catch(err => console.warn('Failed to add plate', err));
+
+      fetch('/api/errors').then(r => r.json()).then(flags => {
+        Object.keys(flags).forEach(key => {
+          const cb = document.getElementById('err-' + key);
+          if (cb) cb.checked = !!flags[key];
         });
-      }
-      if (removeBtn) {
-        removeBtn.addEventListener('click', () => {
-          const stop = select.value;
-          if (!stop) return;
-          fetch(`/api/set_plate?stop=${stop}&present=false`)
-            .then(() => refresh())
-            .catch(err => console.warn('Failed to remove plate', err));
-        });
-      }
-      const resetBtn = document.getElementById('reset-btn');
-      if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-          fetch('/api/reset_state')
-            .then(() => {
-              refresh();
-              updateStackInputs();
-            })
-            .catch(err => console.warn('Failed to reset state', err));
-        });
-      }
-      const applyStackBtn = document.getElementById('apply-stack-btn');
-      if (applyStackBtn) {
-        applyStackBtn.addEventListener('click', () => {
-          const inputs = document.querySelectorAll('#stack-inputs input');
-          const promises = [];
-          inputs.forEach(input => {
-            const liftIndex = input.dataset.liftIndex;
-            const count = parseInt(input.value, 10);
-            if (!isNaN(count)) {
-              promises.push(fetch(`/api/set_stack?stack=${liftIndex}&count=${count}`));
-            }
-          });
-          Promise.all(promises)
-            .then(() => {
-              refresh();
-              updateStackInputs();
-            })
-            .catch(err => console.warn('Failed to set stack counts', err));
-        });
-      }
+      });
+
+      document.getElementById('add-plate-btn').addEventListener('click', () => {
+        const stop = select.value;
+        if (stop) fetch(`/api/set_plate?stop=${stop}&present=true`).then(refresh);
+      });
+      document.getElementById('remove-plate-btn').addEventListener('click', () => {
+        const stop = select.value;
+        if (stop) fetch(`/api/set_plate?stop=${stop}&present=false`).then(refresh);
+      });
+      document.getElementById('reset-btn').addEventListener('click', () => {
+        if (confirm("Reset all stops and stacks?")) {
+          fetch('/api/reset_state').then(() => { refresh(); updateStackInputs(); });
+        }
+      });
+      document.getElementById('apply-stack-btn').addEventListener('click', () => {
+        const inputs = document.querySelectorAll('#stack-inputs input');
+        const promises = Array.from(inputs).map(i => fetch(`/api/set_stack?stack=${i.dataset.liftIndex}&count=${i.value}`));
+        Promise.all(promises).then(() => { refresh(); updateStackInputs(); });
+      });
       refresh();
       updateStackInputs();
     }
+
     async function refresh() {
       try {
         const response = await fetch('/api/state');
         const data = await response.json();
         updateUI(data);
-      } catch (e) {
-        console.error('Failed to refresh state', e);
-      }
+      } catch (e) { }
     }
+
     async function updateStackInputs() {
       try {
         const response = await fetch('/api/state');
         const data = await response.json();
         const container = document.getElementById('stack-inputs');
-        if (!container) return;
-        if (container.innerHTML === '') {
-          const liftIndices = Object.keys(data.stacks).sort((a, b) => parseInt(a) - parseInt(b));
-          liftIndices.forEach(idx => {
-            const div = document.createElement('div');
-            div.style.marginBottom = '5px';
-            const label = document.createElement('label');
-            label.textContent = `Stack ${idx}: `;
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.min = '0';
-            input.max = data.stacks[idx].capacity;
-            input.value = data.stacks[idx].count;
-            input.style.width = '50px';
-            input.dataset.liftIndex = idx;
-            div.appendChild(label);
-            div.appendChild(input);
-            container.appendChild(div);
-          });
-        } else {
-          const inputs = container.querySelectorAll('input');
-          inputs.forEach(input => {
-            const idx = input.dataset.liftIndex;
-            if (data.stacks[idx]) {
-              input.value = data.stacks[idx].count;
-            }
-          });
-        }
-      } catch (e) {
-        console.warn('Failed to update stack input values', e);
-      }
+        if (!container || container.innerHTML !== '') return;
+        Object.keys(data.stacks).sort((a, b) => parseInt(a) - parseInt(b)).forEach(idx => {
+          const div = document.createElement('div');
+          div.style.marginBottom = '5px';
+          div.innerHTML = `<label>Stack ${idx}: </label><input type="number" min="0" max="${data.stacks[idx].capacity}" value="${data.stacks[idx].count}" style="width:50px;" data-lift-index="${idx}">`;
+          container.appendChild(div);
+        });
+      } catch (e) { }
     }
+
     buildUI(initialState);
     initSettingsPanel();
-    setInterval(refresh, 1000);
+    setInterval(refresh, 500);
   </script>
 </body>
 

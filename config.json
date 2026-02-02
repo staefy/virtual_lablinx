@@ -43,5 +43,10 @@
         {
             "after_stop": 6
         }
-    ]
+    ],
+    "timings": {
+        "dispense_time": 1.5,
+        "return_time": 1.5,
+        "move_time_per_segment": 0.5
+    }
 }
