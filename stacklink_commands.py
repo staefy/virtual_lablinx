@@ -396,3 +396,51 @@ def cmd_acknowledgesend(state: Any, args: str) -> Tuple[int, str, List[str]]:
 
 def cmd_getnumtracks(state: Any, args: str) -> Tuple[int, str, List[str]]:
     return 0, "1", []
+
+
+def cmd_liststops(state: Any, args: str) -> Tuple[int, str, List[str]]:
+    """List all stops on the track with their configuration.
+    
+    Returns stop info matching the StackLink LISTSTOPS format:
+    Position N: Port X: Name 'StopName'; [flags]
+    """
+    try:
+        parts = args.split(",")
+        if parts and parts[0].strip():
+            track = int(parts[0].strip())
+            if track != 1:
+                return 1, "Invalid track number", []
+    except Exception:
+        return 1, "Invalid parameters", []
+    
+    # Build the list of stops from config
+    stop_configs = state.config.get("stops", [])
+    num_stops = len(stop_configs)
+    
+    extra_lines = []
+    for idx, stop_cfg in enumerate(sorted(stop_configs, key=lambda x: x["id"]), start=1):
+        stop_id = stop_cfg["id"]
+        stop_type = stop_cfg.get("type", "empty")
+        
+        # Determine port letter (A, B, C, ...) based on position
+        port_letter = chr(ord('A') + (stop_id - 1) % 26)
+        
+        # Build name and flags based on type
+        if stop_type == "stack":
+            lift_idx = stop_cfg.get("lift_index", stop_id)
+            name = f"Lift{lift_idx}"
+            flags = "Lift"
+        elif stop_type == "waste":
+            name = "Waste"
+            flags = "NoSensor"
+        else:
+            # Generic empty stop or camera position (simulator doesn't know about cameras)
+            name = stop_cfg.get("name", f"Stop{stop_id}")
+            flags = ""
+        
+        line = f"Position {idx}: Port {port_letter}: Name '{name}'"
+        if flags:
+            line += f"; {flags}"
+        extra_lines.append(line)
+    
+    return 0, f"Track 1 has {num_stops} stops:", extra_lines
