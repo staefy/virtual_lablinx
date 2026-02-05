@@ -15,6 +15,12 @@ and some UI to control simulation state:
 
 <img width="323" height="369" alt="image" src="https://github.com/user-attachments/assets/cfa534a4-68c4-4f22-a856-2c473bcc6956" />
 
+Real device - A stop:
+<img width="549" height="254" alt="image" src="https://github.com/user-attachments/assets/73c77a25-d13a-4a20-b866-3a9852d4666f" />
+
+Real device - Stackers and track:
+<img width="505" height="602" alt="image" src="https://github.com/user-attachments/assets/638d41e8-c275-4da2-b646-b958ae862a28" />
+
 
 ## Getting Started
 
