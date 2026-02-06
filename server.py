@@ -581,19 +581,42 @@ def run_http_server(state: StackLinkState, host: str = "0.0.0.0", port: int = 80
 
 
 def main() -> None:
+    import sys
+    
     # Create the state object from config.json
     state = StackLinkState("config.json")
 
     # Start the TCP server
-    tcp_server = TCPServer(state)
-    tcp_server.start()
+    try:
+        tcp_server = TCPServer(state)
+        tcp_server.start()
+    except OSError as e:
+        if e.errno == 10048 or "address already in use" in str(e).lower():
+            print("\n" + "="*60)
+            print("ERROR: Port 7000 is already in use!")
+            print("Another simulator instance may already be running.")
+            print("Please stop the other instance before starting a new one.")
+            print("="*60 + "\n")
+            sys.exit(1)
+        raise
 
     # Start the HTTP server
     def run_http_server_thread():
-        server_address = ("", 8000)
-        httpd = HTTPServer(server_address, lambda *args, **kwargs: WebRequestHandler(*args, state=state, **kwargs))
-        logging.info("HTTP server listening on port 8000")
-        httpd.serve_forever()
+        try:
+            server_address = ("", 8000)
+            httpd = HTTPServer(server_address, lambda *args, **kwargs: WebRequestHandler(*args, state=state, **kwargs))
+            logging.info("HTTP server listening on port 8000")
+            httpd.serve_forever()
+        except OSError as e:
+            if e.errno == 10048 or "address already in use" in str(e).lower():
+                print("\n" + "="*60)
+                print("ERROR: Port 8000 is already in use!")
+                print("Another simulator instance may already be running.")
+                print("Please stop the other instance before starting a new one.")
+                print("="*60 + "\n")
+                import sys
+                sys.exit(1)
+            raise
 
     # Run HTTP server in a separate thread to not block the main thread
     http_thread = threading.Thread(target=run_http_server_thread, daemon=True)
