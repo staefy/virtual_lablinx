@@ -51,7 +51,7 @@ COMMAND_LIST: List[str] = [
     "Dispense", "Return",
     # Meta commands
     "Can", "DeleteSettingsFile", "GetSerialNumber", "GetSettings",
-    "ListCommands", "ListParameters", "ListParams", "ListSettings",
+    "ListCommands", "ListParameters", "ListParams", "ListSettings", "Version",
     # Plate movement
     "AcknowledgeSend", "CompoundShift", "ConveyorOff", "ConveyorOn",
     "GetIgnoreStop", "GetIgnoreStops", "HasPlate", "IgnoreAllStops",
