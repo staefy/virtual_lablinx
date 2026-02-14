@@ -321,7 +321,11 @@ class TCPServer(threading.Thread):
                     if extra:
                         response_lines.append("End of List")
                     response_text = "\r\n".join(response_lines) + "\r\n"
-                    conn.sendall(response_text.encode("utf-8"))
+                    try:
+                        conn.sendall(response_text.encode("utf-8"))
+                    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                        logging.info("Client %s:%d disconnected during response", *addr)
+                        return
         logging.info("Connection closed from %s:%d", *addr)
 
     def stop(self) -> None:
