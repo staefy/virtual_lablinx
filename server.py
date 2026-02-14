@@ -342,7 +342,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Dispatch GET requests based on path."""
         # Settings and state APIs
-        if self.path == "/" or self.path.startswith("/index.html"):
+        if self.path == "/" or self.path.startswith("/?") or self.path.startswith("/index.html"):
             self.serve_index()
         elif self.path == "/api/state":
             self.serve_state()
