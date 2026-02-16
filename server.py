@@ -585,19 +585,37 @@ def run_http_server(state: StackLinkState, host: str = "0.0.0.0", port: int = 80
 
 
 def main() -> None:
+    import argparse
+    import os
     import sys
-    
+
+    parser = argparse.ArgumentParser(description="Virtual StackLink simulator")
+    parser.add_argument(
+        "--tcp-port", type=int,
+        default=int(os.environ.get("SIM_TCP_PORT", "7000")),
+        help="TCP command port (default: 7000, env: SIM_TCP_PORT)",
+    )
+    parser.add_argument(
+        "--http-port", type=int,
+        default=int(os.environ.get("SIM_HTTP_PORT", "8000")),
+        help="HTTP dashboard port (default: 8000, env: SIM_HTTP_PORT)",
+    )
+    args = parser.parse_args()
+
+    tcp_port = args.tcp_port
+    http_port = args.http_port
+
     # Create the state object from config.json
     state = StackLinkState("config.json")
 
     # Start the TCP server
     try:
-        tcp_server = TCPServer(state)
+        tcp_server = TCPServer(state, port=tcp_port)
         tcp_server.start()
     except OSError as e:
         if e.errno == 10048 or "address already in use" in str(e).lower():
             print("\n" + "="*60)
-            print("ERROR: Port 7000 is already in use!")
+            print(f"ERROR: Port {tcp_port} is already in use!")
             print("Another simulator instance may already be running.")
             print("Please stop the other instance before starting a new one.")
             print("="*60 + "\n")
@@ -607,14 +625,14 @@ def main() -> None:
     # Start the HTTP server
     def run_http_server_thread():
         try:
-            server_address = ("", 8000)
+            server_address = ("", http_port)
             httpd = HTTPServer(server_address, lambda *args, **kwargs: WebRequestHandler(*args, state=state, **kwargs))
-            logging.info("HTTP server listening on port 8000")
+            logging.info("HTTP server listening on port %d", http_port)
             httpd.serve_forever()
         except OSError as e:
             if e.errno == 10048 or "address already in use" in str(e).lower():
                 print("\n" + "="*60)
-                print("ERROR: Port 8000 is already in use!")
+                print(f"ERROR: Port {http_port} is already in use!")
                 print("Another simulator instance may already be running.")
                 print("Please stop the other instance before starting a new one.")
                 print("="*60 + "\n")
@@ -626,19 +644,16 @@ def main() -> None:
     http_thread = threading.Thread(target=run_http_server_thread, daemon=True)
     http_thread.start()
 
-    # Keep the main thread alive, e.g., by waiting for the TCP server thread (if it were not daemon)
-    # or by a simple loop/sleep if there's nothing else for the main thread to do.
-    # For daemon threads, the program will exit when the main thread exits.
-    # A common pattern is to join non-daemon threads or use a KeyboardInterrupt handler.
+    print(f"\n  Simulator running:")
+    print(f"    TCP commands:  localhost:{tcp_port}")
+    print(f"    HTTP dashboard: http://localhost:{http_port}\n")
+
     try:
         while True:
-            time.sleep(1) # Keep main thread alive
+            time.sleep(1)
     except KeyboardInterrupt:
         logging.info("Shutting down servers...")
         tcp_server.stop()
-        # httpd.server_close() would be called by the http_thread if it caught KeyboardInterrupt,
-        # but since it's daemon, it will just terminate with the main thread.
-        # If http_thread was not daemon, we would need to signal it to stop and join it.
 
 
 if __name__ == "__main__":
