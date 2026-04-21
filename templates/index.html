@@ -174,6 +174,14 @@
       font-size: 10px;
       font-weight: bold;
       color: #666;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .label .stop-name {
+      display: block;
+      font-size: 9px;
+      color: #999;
     }
 
     .connector {
@@ -185,6 +193,59 @@
       border-radius: 4px;
       align-self: flex-end;
       margin-bottom: 15px;
+    }
+
+    /* Trash bin visual */
+    .trash-bin {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0 4px;
+      align-self: flex-end;
+      margin-bottom: 2px;
+    }
+
+    .trash-bin .trash-icon {
+      width: 40px;
+      height: 36px;
+      background-color: #c0392b;
+      border: 2px solid #922b21;
+      border-radius: 0 0 6px 6px;
+      position: relative;
+      box-sizing: border-box;
+    }
+
+    .trash-bin .trash-lid {
+      width: 46px;
+      height: 6px;
+      background-color: #a93226;
+      border: 1px solid #922b21;
+      border-radius: 2px;
+      margin-bottom: 1px;
+    }
+
+    .trash-bin .trash-label {
+      margin-top: 3px;
+      font-size: 9px;
+      font-weight: bold;
+      color: #922b21;
+    }
+
+    .trash-bin .trash-arrow {
+      width: 30px;
+      height: 2px;
+      background-color: #c0392b;
+      margin-bottom: 4px;
+      position: relative;
+    }
+
+    .trash-bin .trash-arrow::before {
+      content: '';
+      position: absolute;
+      left: -1px;
+      top: -4px;
+      border: 5px solid transparent;
+      border-right-color: #c0392b;
     }
   </style>
 </head>
@@ -237,6 +298,15 @@
     var activeMoveElements = {}; // plate_id -> element
     var lastState = null;
 
+    // Build a name lookup from config stops
+    function getStopNameMap(config) {
+      var map = {};
+      (config.stops || []).forEach(function (s) {
+        map[s.id] = s.name || ('Stop ' + s.id);
+      });
+      return map;
+    }
+
     function buildUI(state) {
       const config = state.config || { stops: [], connectors: [] };
       const trackDiv = document.getElementById('track');
@@ -244,6 +314,29 @@
 
       const stopsCfg = config.stops || [];
       const connectorsCfg = config.connectors || [];
+      const trashCfg = config.trash || null;
+      const nameMap = getStopNameMap(config);
+
+      // Add trash bin before the track if trash side is "reverse"
+      if (trashCfg && trashCfg.side === 'reverse') {
+        const trashDiv = document.createElement('div');
+        trashDiv.className = 'trash-bin';
+        trashDiv.id = 'trash-bin';
+        const arrow = document.createElement('div');
+        arrow.className = 'trash-arrow';
+        trashDiv.appendChild(arrow);
+        const lid = document.createElement('div');
+        lid.className = 'trash-lid';
+        trashDiv.appendChild(lid);
+        const icon = document.createElement('div');
+        icon.className = 'trash-icon';
+        trashDiv.appendChild(icon);
+        const label = document.createElement('div');
+        label.className = 'trash-label';
+        label.textContent = 'Trash';
+        trashDiv.appendChild(label);
+        trackDiv.appendChild(trashDiv);
+      }
 
       stopsCfg.forEach((stopCfg) => {
         const id = stopCfg.id;
@@ -288,7 +381,12 @@
 
         const labelDiv = document.createElement('div');
         labelDiv.className = 'label';
-        labelDiv.textContent = id;
+        const stopName = nameMap[id] || '';
+        if (stopName) {
+          labelDiv.innerHTML = id + '<span class="stop-name">' + stopName + '</span>';
+        } else {
+          labelDiv.textContent = id;
+        }
         stopDiv.appendChild(labelDiv);
         trackDiv.appendChild(stopDiv);
 
@@ -298,6 +396,29 @@
           trackDiv.appendChild(connector);
         }
       });
+
+      // Add trash bin after the track if trash side is "forward"
+      if (trashCfg && trashCfg.side === 'forward') {
+        const trashDiv = document.createElement('div');
+        trashDiv.className = 'trash-bin';
+        trashDiv.id = 'trash-bin';
+        const arrow = document.createElement('div');
+        arrow.className = 'trash-arrow';
+        arrow.style.transform = 'scaleX(-1)';
+        trashDiv.appendChild(arrow);
+        const lid = document.createElement('div');
+        lid.className = 'trash-lid';
+        trashDiv.appendChild(lid);
+        const icon = document.createElement('div');
+        icon.className = 'trash-icon';
+        trashDiv.appendChild(icon);
+        const label = document.createElement('div');
+        label.className = 'trash-label';
+        label.textContent = 'Trash';
+        trashDiv.appendChild(label);
+        trackDiv.appendChild(trashDiv);
+      }
+
       updateUI(state);
     }
 
@@ -305,11 +426,26 @@
     function getPlateCoords(stopId) {
       const stopDiv = document.getElementById('stop-' + stopId);
       const overlay = document.getElementById('plate-overlay');
-      if (!stopDiv || !overlay) return { x: 0, y: 0 };
+      if (!overlay) return { x: 0, y: 0 };
+
+      const overlayRect = overlay.getBoundingClientRect();
+
+      // For off-edge destinations (SendPlate), calculate position beyond the track
+      if (!stopDiv) {
+        const trashBin = document.getElementById('trash-bin');
+        if (trashBin) {
+          const trashRect = trashBin.getBoundingClientRect();
+          return {
+            x: trashRect.left - overlayRect.left + (trashRect.width / 2) - 24,
+            y: trashRect.top - overlayRect.top + (trashRect.height / 2) - 9
+          };
+        }
+        // Fallback: move off screen to the left or right
+        return { x: -80, y: overlayRect.height / 2 };
+      }
 
       const segDiv = stopDiv.querySelector('.segment');
       const stopRect = segDiv.getBoundingClientRect();
-      const overlayRect = overlay.getBoundingClientRect();
 
       return {
         x: stopRect.left - overlayRect.left + (stopRect.width / 2) - 24, // 24 is half plate width
@@ -439,6 +575,8 @@
     }
 
     function initSettingsPanel() {
+      const config = initialState.config || { stops: [] };
+      const nameMap = getStopNameMap(config);
       const select = document.getElementById('plate-stop-select');
       if (select && select.options.length === 0) {
         const placeholder = document.createElement('option');
@@ -450,7 +588,8 @@
         stopIds.forEach(id => {
           const opt = document.createElement('option');
           opt.value = id;
-          opt.textContent = `Stop ${id}`;
+          const name = nameMap[parseInt(id)] || '';
+          opt.textContent = name ? `${id} (${name})` : `Stop ${id}`;
           select.appendChild(opt);
         });
       }

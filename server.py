@@ -156,6 +156,9 @@ class StackLinkState:
         # Track active movements for animation [plate_id] -> {source, dest, start_time, duration}
         self.active_moves: Dict[int, dict] = {}
 
+        # Pending send state – set by SendPlate, cleared by AcknowledgeSend
+        self.pending_send: Optional[dict] = None
+
     def _load_config(self, path_str: str) -> dict:
         """Load the layout configuration from a JSON file."""
         try:
@@ -215,6 +218,8 @@ class StackLinkState:
             self.error_flags[key] = False
         # Reset plate ID counter
         self.next_plate_id = 1
+        # Clear any pending send
+        self.pending_send = None
 
     def set_stack_count(self, index: int, count: int) -> bool:
         """Set the number of plates in a stack. Returns True on success."""

@@ -357,18 +357,106 @@ def cmd_shiftplates(state: Any, args: str) -> Tuple[int, str, List[str]]:
 
 
 def cmd_sendplate(state: Any, args: str) -> Tuple[int, str, List[str]]:
+    """Send a single plate off the track from a given stop.
+
+    Usage: SendPlate trackNumber, [stop], [direction]
+
+    - stop defaults to the last stop on the track if omitted.
+    - direction defaults to Forward if omitted.
+      Accepted values: Forward, Reverse, Fwd, Rev, F, R (case-insensitive).
+    - All positions beyond the chosen stop (in the given direction) must be
+      clear of plates, or error 57 is returned.
+    - On success the device enters a waiting state; AcknowledgeSend must be
+      called to confirm the plate was received by the external system.
+    - Returns the same output as GetStopSensors on success.
+    """
     try:
-        track_str, stop_str = args.split(",")
-        stop = int(stop_str)
+        parts = [x.strip() for x in args.split(",")]
+        track = int(parts[0])  # noqa: F841
     except Exception:
         return 1, "Invalid parameters", []
+
+    sorted_stops = sorted(state.stops.keys())
+
+    # Parse optional stop (default: last stop on track)
+    stop: Optional[int] = None
+    if len(parts) >= 2 and parts[1]:
+        try:
+            stop = int(parts[1])
+        except ValueError:
+            return 1, "Invalid parameters", []
+    if stop is None:
+        stop = sorted_stops[-1]
+
+    # Parse optional direction (default: Forward)
+    direction_str = "forward"
+    if len(parts) >= 3 and parts[2]:
+        direction_str = parts[2].strip().lower()
+    if direction_str not in ("forward", "fwd", "f", "reverse", "rev", "r"):
+        return 1, "Invalid direction", []
+    forward = direction_str in ("forward", "fwd", "f")
+
+    # Validate stop
     if stop not in state.stops:
         return 1, "Stop out of range", []
+
+    if state.error_flags.get("movement_blocked", False):
+        return 57, "Movement blocked", []
+
     if not state.stops[stop].has_plate:
         return 2004, "No plate at source", []
+
+    # Check that all positions beyond the stop in the given direction are clear
+    if forward:
+        beyond = [s for s in sorted_stops if s > stop]
+    else:
+        beyond = [s for s in sorted_stops if s < stop]
+    for s in beyond:
+        if state.stops[s].has_plate:
+            return 57, "Path is not clear", []
+
+    # Calculate movement duration: plate travels from stop to edge + off
+    if forward:
+        edge_stop = sorted_stops[-1]
+        distance = edge_stop - stop + 1  # +1 for travelling off the edge
+    else:
+        edge_stop = sorted_stops[0]
+        distance = stop - edge_stop + 1
+    duration = distance * state.move_time_per_segment
+
+    # Remove plate from the stop
+    plate_id = state.stops[stop].plate_id
     state.stops[stop].has_plate = False
     state.stops[stop].plate_id = None
-    return 0, "Success", []
+
+    # Track active movement for animation (dest is off-edge)
+    if forward:
+        off_edge = sorted_stops[-1] + 1
+    else:
+        off_edge = sorted_stops[0] - 1
+    if plate_id is not None:
+        state.active_moves[plate_id] = {
+            "source": stop,
+            "dest": off_edge,
+            "duration": duration,
+            "start_time": time.time(),
+            "type": "send",
+        }
+
+    try:
+        time.sleep(duration)
+    finally:
+        if plate_id is not None:
+            state.active_moves.pop(plate_id, None)
+
+    # Enter waiting state (requires AcknowledgeSend to clear)
+    state.pending_send = {
+        "plate_id": plate_id,
+        "from_stop": stop,
+        "direction": "forward" if forward else "reverse",
+    }
+
+    return 0, state.stops_status_string(), []
 
 
 def cmd_receiveplate(state: Any, args: str) -> Tuple[int, str, List[str]]:
@@ -387,10 +475,17 @@ def cmd_receiveplate(state: Any, args: str) -> Tuple[int, str, List[str]]:
         return 2001, "Cannot dispense; lift is blocked", []
     state.stops[stop].has_plate = True
     state.stops[stop].plate_id = None
-    return 0, "Success", []
+    return 0, state.stops_status_string(), []
 
 
 def cmd_acknowledgesend(state: Any, args: str) -> Tuple[int, str, List[str]]:
+    """Acknowledge that a plate sent via SendPlate was received.
+
+    Clears the waiting state set by SendPlate.
+    """
+    if not getattr(state, "pending_send", None):
+        return 1, "No pending send to acknowledge", []
+    state.pending_send = None
     return 0, "Success", []
 
 

@@ -2,48 +2,51 @@
     "stops": [
         {
             "id": 1,
-            "type": "empty"
+            "type": "camera",
+            "name": "Hydra1"
         },
         {
             "id": 2,
-            "type": "camera"
+            "type": "camera",
+            "name": "Hydra2"
         },
         {
             "id": 3,
             "type": "stack",
             "lift_index": 1,
             "initial_count": 15,
-            "capacity": 30
+            "capacity": 30,
+            "name": "Stacker1"
         },
         {
             "id": 4,
             "type": "stack",
             "lift_index": 2,
             "initial_count": 0,
-            "capacity": 30
+            "capacity": 30,
+            "name": "Stacker2"
         },
         {
             "id": 5,
-            "type": "camera"
+            "type": "camera",
+            "name": "Hydra3"
         },
         {
             "id": 6,
-            "type": "camera"
+            "type": "camera",
+            "name": "Hydra4"
         },
         {
             "id": 7,
-            "type": "camera"
-        },
-        {
-            "id": 8,
-            "type": "camera"
+            "type": "camera",
+            "name": "Hydra5"
         }
     ],
-    "connectors": [
-        {
-            "after_stop": 6
-        }
-    ],
+    "connectors": [],
+    "trash": {
+        "side": "reverse",
+        "beyond_stop": 1
+    },
     "timings": {
         "dispense_time": 1.5,
         "return_time": 1.5,
